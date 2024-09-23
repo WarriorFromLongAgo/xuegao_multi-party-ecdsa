@@ -36,25 +36,32 @@ fn set(db_mtx: &State<RwLock<HashMap<Key, String>>>, request: Json<Entry>) -> Js
     Json(Ok(()))
 }
 
+// 为参与方生成一个注册信息（PartySignup），并将其存储在共享的数据库中。
 #[post("/signupkeygen", format = "json")]
 fn signup_keygen(db_mtx: &State<RwLock<HashMap<Key, String>>>) -> Json<Result<PartySignup, ()>> {
+    // 读取配置文件 "params.json"
     let data = fs::read_to_string("params.json")
         .expect("Unable to read params, make sure config file is present in the same folder ");
     let params: Params = serde_json::from_str(&data).unwrap();
     let parties = params.parties.parse::<u16>().unwrap();
 
+    // 定义用于存储注册信息的键
     let key = "signup-keygen".to_string();
 
+    // 读取共享数据库中的注册信息
     let party_signup = {
         let hm = db_mtx.read().unwrap();
         let value = hm.get(&key).unwrap();
+
         let client_signup: PartySignup = serde_json::from_str(value).unwrap();
+        // 如果当前注册的参与方数量小于配置文件中的数量，则增加一个参与方
         if client_signup.number < parties {
             PartySignup {
                 number: client_signup.number + 1,
                 uuid: client_signup.uuid,
             }
         } else {
+            // 否则，重新生成一个UUID，并将参与方数量重置为1
             PartySignup {
                 number: 1,
                 uuid: Uuid::new_v4().to_string(),
@@ -62,6 +69,7 @@ fn signup_keygen(db_mtx: &State<RwLock<HashMap<Key, String>>>) -> Json<Result<Pa
         }
     };
 
+    // 将新的注册信息写入共享数据库
     let mut hm = db_mtx.write().unwrap();
     hm.insert(key, serde_json::to_string(&party_signup).unwrap());
     Json(Ok(party_signup))

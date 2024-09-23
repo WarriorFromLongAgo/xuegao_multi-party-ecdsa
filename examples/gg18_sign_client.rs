@@ -27,22 +27,25 @@ use common::{
 
 #[allow(clippy::cognitive_complexity)]
 fn main() {
+    // 检查命令行参数数量
     if env::args().nth(4).is_some() {
         panic!("too many arguments")
     }
     if env::args().nth(3).is_none() {
         panic!("too few arguments")
     }
+    // 获取要签名的消息
     let message_str = env::args().nth(3).unwrap_or_default();
     let message = match hex::decode(message_str.clone()) {
         Ok(x) => x,
         Err(_e) => message_str.as_bytes().to_vec(),
     };
     let message = &message[..];
+    // 创建 HTTP 客户端
     let client = Client::new();
-    // delay:
+    // 设置延迟时间
     let delay = time::Duration::from_millis(25);
-    // read key file
+    // 读取密钥文件
     let data = fs::read_to_string(env::args().nth(2).unwrap())
         .expect("Unable to load keys, did you run keygen first? ");
     let (party_keys, shared_keys, party_id, vss_scheme_vec, paillier_key_vector, y_sum): (
@@ -54,19 +57,19 @@ fn main() {
         Point<Secp256k1>,
     ) = serde_json::from_str(&data).unwrap();
 
-    //read parameters:
+    // 读取参数文件
     let data = fs::read_to_string("params.json")
         .expect("Unable to read params, make sure config file is present in the same folder ");
     let params: Params = serde_json::from_str(&data).unwrap();
     let THRESHOLD = params.threshold.parse::<u16>().unwrap();
 
-    //signup:
+    // 注册参与方
     let (party_num_int, uuid) = match signup(&client).unwrap() {
         PartySignup { number, uuid } => (number, uuid),
     };
     println!("number: {:?}, uuid: {:?}", party_num_int, uuid);
 
-    // round 0: collect signers IDs
+    // 第0轮：收集签名者ID
     assert!(broadcast(
         &client,
         party_num_int,
@@ -96,8 +99,10 @@ fn main() {
         }
     }
 
+    // 设置私钥
     let private = PartyPrivate::set_private(party_keys.clone(), shared_keys);
 
+    // 创建签名密钥
     let sign_keys = SignKeys::create(
         &private,
         &vss_scheme_vec[usize::from(signers_vec[usize::from(party_num_int - 1)])],
@@ -105,8 +110,10 @@ fn main() {
         &signers_vec,
     );
 
+    // 获取对 xi 的承诺
     let xi_com_vec = Keys::get_commitments_to_xi(&vss_scheme_vec);
     //////////////////////////////////////////////////////////////////////////////
+    // 第1轮：广播承诺和消息A
     let (com, decommit) = sign_keys.phase1_broadcast();
     let (m_a_k, _) = MessageA::a(&sign_keys.k_i, &party_keys.ek, &[]);
     assert!(broadcast(
@@ -148,6 +155,7 @@ fn main() {
     assert_eq!(signers_vec.len(), bc1_vec.len());
 
     //////////////////////////////////////////////////////////////////////////////
+    // 第2轮：发送消息B
     let mut m_b_gamma_send_vec: Vec<MessageB> = Vec::new();
     let mut beta_vec: Vec<Scalar<Secp256k1>> = Vec::new();
     let mut m_b_w_send_vec: Vec<MessageB> = Vec::new();
@@ -243,6 +251,7 @@ fn main() {
         }
     }
     //////////////////////////////////////////////////////////////////////////////
+    // 第3轮：计算 delta_i 和 sigma
     let delta_i = sign_keys.phase2_delta_i(&alpha_vec, &beta_vec);
     let sigma = sign_keys.phase2_sigma_i(&miu_vec, &ni_vec);
 
@@ -272,6 +281,7 @@ fn main() {
     let delta_inv = SignKeys::phase3_reconstruct_delta(&delta_vec);
 
     //////////////////////////////////////////////////////////////////////////////
+    // 第4轮：广播 sigma
     // decommit to gamma_i
     assert!(broadcast(
         &client,
@@ -313,6 +323,7 @@ fn main() {
     let local_sig =
         LocalSignature::phase5_local_sig(&sign_keys.k_i, &message_bn, &R, &sigma, &y_sum);
 
+    // 第5轮：广播承诺
     let (phase5_com, phase_5a_decom, helgamal_proof, dlog_proof_rho) =
         local_sig.phase5a_broadcast_5b_zkproof();
 
@@ -343,6 +354,7 @@ fn main() {
     );
 
     //phase (5B)  broadcast decommit and (5B) ZK proof
+    // 第6轮：广播解密和 ZK 证明
     assert!(broadcast(
         &client,
         party_num_int,
@@ -401,6 +413,7 @@ fn main() {
         .expect("error phase5");
 
     //////////////////////////////////////////////////////////////////////////////
+    // 第7轮：广播第二个承诺
     assert!(broadcast(
         &client,
         party_num_int,
@@ -427,6 +440,7 @@ fn main() {
     );
 
     //phase (5B)  broadcast decommit and (5B) ZK proof
+    // 第8轮：广播解密和 ZK 证明
     assert!(broadcast(
         &client,
         party_num_int,
@@ -468,6 +482,7 @@ fn main() {
         .expect("bad com 5d");
 
     //////////////////////////////////////////////////////////////////////////////
+    // 第9轮：广播签名片段
     assert!(broadcast(
         &client,
         party_num_int,
