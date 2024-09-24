@@ -45,9 +45,11 @@ fn main() {
     let client = Client::new();
     // 设置延迟时间
     let delay = time::Duration::from_millis(25);
-    // 读取密钥文件
+
+    // 读取本地密钥文件
     let data = fs::read_to_string(env::args().nth(2).unwrap())
         .expect("Unable to load keys, did you run keygen first? ");
+    // 获取密钥里面的keygen后的多轮信息
     let (party_keys, shared_keys, party_id, vss_scheme_vec, paillier_key_vector, y_sum): (
         Keys,
         SharedKeys,
@@ -88,6 +90,7 @@ fn main() {
     );
 
     let mut j = 0;
+    // 存储所有签名者id
     let mut signers_vec: Vec<u16> = Vec::new();
     for i in 1..=THRESHOLD + 1 {
         if i == party_num_int {
@@ -114,6 +117,8 @@ fn main() {
     let xi_com_vec = Keys::get_commitments_to_xi(&vss_scheme_vec);
     //////////////////////////////////////////////////////////////////////////////
     // 第1轮：广播承诺和消息A
+    // com：广播的承诺
+    // decommit：解密信息
     let (com, decommit) = sign_keys.phase1_broadcast();
     let (m_a_k, _) = MessageA::a(&sign_keys.k_i, &party_keys.ek, &[]);
     assert!(broadcast(
@@ -134,7 +139,9 @@ fn main() {
     );
 
     let mut j = 0;
+    // 存储承诺
     let mut bc1_vec: Vec<SignBroadcastPhase1> = Vec::new();
+    // 存储消息A
     let mut m_a_vec: Vec<MessageA> = Vec::new();
 
     for i in 1..THRESHOLD + 2 {
@@ -142,6 +149,8 @@ fn main() {
             bc1_vec.push(com.clone());
         //   m_a_vec.push(m_a_k.clone());
         } else {
+            // 解析出其他参与者的承诺
+            // 解析出其他参与者的消息A
             //     if signers_vec.contains(&(i as usize)) {
             let (bc1_j, m_a_party_j): (SignBroadcastPhase1, MessageA) =
                 serde_json::from_str(&round1_ans_vec[j]).unwrap();
@@ -152,18 +161,25 @@ fn main() {
             //       }
         }
     }
+    // 检查signers_vec的长度是否与bc1_vec的长度相等，以确保所有签名者的承诺都已接收。
     assert_eq!(signers_vec.len(), bc1_vec.len());
 
     //////////////////////////////////////////////////////////////////////////////
     // 第2轮：发送消息B
+
+    // 存储生成的 MessageB 类型的消息，这些消息是基于 gamma_i 生成的。
     let mut m_b_gamma_send_vec: Vec<MessageB> = Vec::new();
+    // 存储与 m_b_gamma_send_vec 中每个消息相关联的 beta_gamma 标量值。
     let mut beta_vec: Vec<Scalar<Secp256k1>> = Vec::new();
+    // 存储生成的 MessageB 类型的消息，这些消息是基于 w_i 生成的。
     let mut m_b_w_send_vec: Vec<MessageB> = Vec::new();
+    // 存储与 m_b_w_send_vec 中每个消息相关联的 beta_wi 标量值。
     let mut ni_vec: Vec<Scalar<Secp256k1>> = Vec::new();
     let mut j = 0;
     for i in 1..THRESHOLD + 2 {
         if i != party_num_int {
             let (m_b_gamma, beta_gamma, _, _) = MessageB::b(
+                // 当前参与方的 gamma_i 密钥。
                 &sign_keys.gamma_i,
                 &paillier_key_vector[usize::from(signers_vec[usize::from(i - 1)])],
                 m_a_vec[j].clone(),
@@ -171,6 +187,7 @@ fn main() {
             )
             .unwrap();
             let (m_b_w, beta_wi, _, _) = MessageB::b(
+                // 这是一个引用，指向当前参与方的 w_i 密钥。
                 &sign_keys.w_i,
                 &paillier_key_vector[usize::from(signers_vec[usize::from(i - 1)])],
                 m_a_vec[j].clone(),
@@ -213,7 +230,7 @@ fn main() {
 
     let mut m_b_gamma_rec_vec: Vec<MessageB> = Vec::new();
     let mut m_b_w_rec_vec: Vec<MessageB> = Vec::new();
-
+    // 收集其他参与的消息B
     for i in 0..THRESHOLD {
         //  if signers_vec.contains(&(i as usize)) {
         let (m_b_gamma_i, m_b_w_i): (MessageB, MessageB) =
