@@ -50,6 +50,12 @@ fn main() {
     let data = fs::read_to_string(env::args().nth(2).unwrap())
         .expect("Unable to load keys, did you run keygen first? ");
     // 获取密钥里面的keygen后的多轮信息
+    // party_keys 代表参与方的密钥信息，可能包含了生成的私钥、公钥等关键数据。
+    // shared_keys 代表共享密钥信息，可能是参与方之间共享的密钥，用于加密通信或其他用途。
+    // party_id 代表参与方的唯一标识符，通常是一个 16 位的无符号整数。
+    // vss_scheme_vec 代表一个包含多个可验证秘密共享（VSS）方案的向量
+    // paillier_key_vector 代表一个包含多个 Paillier 加密密钥的向量。
+    // y_sum 私钥分片 Secp256k1
     let (party_keys, shared_keys, party_id, vss_scheme_vec, paillier_key_vector, y_sum): (
         Keys,
         SharedKeys,
